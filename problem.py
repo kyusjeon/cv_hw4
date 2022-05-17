@@ -1,7 +1,6 @@
 import os
 import cv2 
 import time
-import math
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -67,7 +66,7 @@ def get_orientation(filtered_x, filtered_y, win_size=7):
     intence_x = filter(window, filtered_x)
     intence_y = filter(window, filtered_y)
     
-    matrix_ori = math.atan(intence_x / intence_y)
+    matrix_ori = np.arctan(intence_x / (intence_y + 1e-13))
     
     return matrix_ori
 
@@ -90,12 +89,24 @@ def non_maximum_suppression(feature_map, win_size=7):
     
     return feature_map
 
-def get_feature_point(img, win_size=7, thr=0.3):
-    feature_map = corner_detect(img, win_size=win_size)
+def get_feature_point(filtered_x, filtered_y, win_size=7, thr=0.3):
+    feature_map = corner_detect(filtered_x, filtered_y, win_size=win_size)
     feature_map = np.where(feature_map > feature_map.max()*thr, feature_map, 0)
     feature_map = non_maximum_suppression(feature_map, win_size=win_size)
     
     return np.argwhere(feature_map != 0), feature_map
+
+def get_feature_descriptors(matrix_ori, feature_points, window_size=16):
+    margin = window_size // 2
+    high, width = matrix_ori.shape
+    high -= margin
+    width -= margin
+    descript_points = list()
+    for _i, _j in feature_points:
+        if _i > margin and _j > margin and _i < high and _j < width:
+            descript_points.append(matrix_ori[_i - margin:_i + margin, _j - margin:_j + margin])
+      
+    return descript_points
 
 root_path = './image_folder'
 image_path_list = sorted(os.listdir(root_path))
@@ -107,10 +118,8 @@ for _i, _j in enumerate(image_path_list):
 image_list = load_image(root_path, image_path_sample)
 for _i in image_list:
     pass
-
-def get_feature_descriptors(feature_points, window_size):
-    # window_size
-    # return feature_vector
+ 
+def shift(des):
     pass
 
 def match2images():
