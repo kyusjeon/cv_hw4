@@ -1,6 +1,7 @@
 import os
 import cv2 
 import time
+import math
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -31,7 +32,7 @@ def harris_oper(a,b,c):
 
     return oper
 
-def corner_detect(img, win_size=7):
+def sobel_filter(img):
     filter_sobelx = np.array([
     [-1,0,1],
     [-2,0,2],
@@ -43,10 +44,13 @@ def corner_detect(img, win_size=7):
     [0,0,0],
     [-1,-2,-1],
     ])
-
+    
     filtered_x = filter(filter_sobelx, img)
     filtered_y = filter(filter_sobely, img)
-
+    
+    return filtered_x, filtered_y
+    
+def corner_detect(filtered_x, filtered_y, win_size=7):
     window = gaussian_kernel(win_size)
 
     harris_a = filter(window, filtered_x*filtered_x)
@@ -56,6 +60,16 @@ def corner_detect(img, win_size=7):
     harris_h = harris_oper(harris_a, harris_b, harris_c)
 
     return harris_h
+
+def get_orientation(filtered_x, filtered_y, win_size=7):
+    window = gaussian_kernel(win_size)
+    
+    intence_x = filter(window, filtered_x)
+    intence_y = filter(window, filtered_y)
+    
+    matrix_ori = math.atan(intence_x / intence_y)
+    
+    return matrix_ori
 
 def load_image(root_path, image_path_list):
     image_list = list()
