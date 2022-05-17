@@ -62,7 +62,7 @@ def corner_detect(filtered_x, filtered_y, win_size=7):
     return harris_h
 
 def get_orientation(filtered_x, filtered_y, win_size=7):
-    window = gaussian_kernel(win_size)
+    window = np.ones((win_size, win_size))
     
     intence_x = filter(window, filtered_x)
     intence_y = filter(window, filtered_y)
