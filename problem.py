@@ -1,6 +1,7 @@
 import os
 import cv2 
 import time
+from cv2 import DIST_L1
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -95,18 +96,33 @@ def get_feature_point(filtered_x, filtered_y, win_size=7, thr=0.3):
     feature_map = non_maximum_suppression(feature_map, win_size=win_size)
     
     return np.argwhere(feature_map != 0), feature_map
+ 
+def shift(feature_point_map):
+    if (16, 16) != feature_point_map.shape:
+        raise ValueError("check your SHIFT input matrix")
+    
+    feature_vector = np.zeros((4,4,8))
+    for _i in range(4):
+        for _j in range(4):
+            feature_vector[_i, _j, :] = np.histogram(feature_point_map[_i * 4:(_i+1) * 4,_j * 4:(_j+1) * 4], bins=8, range=(0, np.pi * 2))[0]
+    
+    return np.ndarray.flatten(feature_vector)
 
-def get_feature_descriptors(matrix_ori, feature_points, window_size=16):
-    margin = window_size // 2
+def get_feature_descriptors(matrix_ori, feature_points):
+    margin = 8  # window_size 16
     high, width = matrix_ori.shape
     high -= margin
     width -= margin
     descript_points = list()
+    feature_point_list = list()
     for _i, _j in feature_points:
         if _i > margin and _j > margin and _i < high and _j < width:
-            descript_points.append(matrix_ori[_i - margin:_i + margin, _j - margin:_j + margin])
+            feature_point_map = matrix_ori[_i - margin:_i + margin, _j - margin:_j + margin]
+            feature_point_map = shift(feature_point_map)
+            descript_points.append(feature_point_map)
+            feature_point_list.append(np.array([_i, _j]))
       
-    return descript_points
+    return np.asarray(descript_points), np.asarray(feature_point_list)
 
 root_path = './image_folder'
 image_path_list = sorted(os.listdir(root_path))
@@ -118,12 +134,32 @@ for _i, _j in enumerate(image_path_list):
 image_list = load_image(root_path, image_path_sample)
 for _i in image_list:
     pass
- 
-def shift(des):
-    pass
 
-def match2images():
-    pass
+filtered_x, filtered_y = sobel_filter(image_list[1])
+feature_points, _ = get_feature_point(filtered_x, filtered_y)
+descript_points2, feature_points2  = get_feature_descriptors(get_orientation(filtered_x, filtered_y), feature_points)
+
+
+def match2images(feature_points1 ,feature_points2, descript_points1, descript_points2 ,ratio = 0.3):
+    dist = np.sum(((descript_points1[:, np.newaxis, ...] - descript_points2[np.newaxis, ...])**2)**(1/2), axis=2)
+    mean1 = np.mean(descript_points1, axis=1)
+    mean2 = np.mean(descript_points2, axis=1)
+    std1 = np.mean(descript_points1, axis=1)
+    std2 = np.mean(descript_points2, axis=1)
+    descript_points1_bar = descript_points1 - mean1[:, np.newaxis]
+    descript_points2_bar = descript_points2 - mean2[:, np.newaxis]
+    norm = np.sum(descript_points1_bar[:, np.newaxis, ...] * descript_points2_bar[np.newaxis, ...] / std1[:, np.newaxis, np.newaxis] / std2[np.newaxis, :, np.newaxis], axis=2)
+    dist /= norm
+    top_ind = np.argsort(dist, axis=1)
+    
+    matching_points1 = list()
+    matching_points2 = list()
+    for _i in range(len(top_ind)):
+        if dist[top_ind[0, _i], _i] / dist[top_ind[0, _i], _i] >= ratio:
+            matching_points1.append(feature_points1[top_ind[0, _i]])
+            matching_points2.append(feature_points2[_i])
+    
+    return matching_points1, matching_points2
 
 def ransac():
     pass
