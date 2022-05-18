@@ -76,7 +76,7 @@ def load_image(root_path, image_path_list):
     for _i in image_path_list:
         _img = cv2.imread(os.path.join(root_path, _i))
         _img = cv2.cvtColor(_img, cv2.COLOR_BGR2GRAY)
-        _img = cv2.resize(_img, dsize=(800,1000))
+        _img = cv2.resize(_img, dsize=(1000,800))
         image_list.append(_img)
     
     return image_list
@@ -124,23 +124,7 @@ def get_feature_descriptors(matrix_ori, feature_points):
       
     return np.asarray(descript_points), np.asarray(feature_point_list)
 
-root_path = './image_folder'
-image_path_list = sorted(os.listdir(root_path))
-image_path_sample = list()
-for _i, _j in enumerate(image_path_list):
-    if _i % 8 == 0:
-        image_path_sample.append(_j)
-
-image_list = load_image(root_path, image_path_sample)
-for _i in image_list:
-    pass
-
-filtered_x, filtered_y = sobel_filter(image_list[1])
-feature_points, _ = get_feature_point(filtered_x, filtered_y)
-descript_points2, feature_points2  = get_feature_descriptors(get_orientation(filtered_x, filtered_y), feature_points)
-
-
-def match2images(feature_points1 ,feature_points2, descript_points1, descript_points2 ,ratio = 0.3):
+def match2images(descript_points1, descript_points2, feature_points1 ,feature_points2 ,ratio = 0.3):
     dist = np.sum(((descript_points1[:, np.newaxis, ...] - descript_points2[np.newaxis, ...])**2)**(1/2), axis=2)
     mean1 = np.mean(descript_points1, axis=1)
     mean2 = np.mean(descript_points2, axis=1)
@@ -154,12 +138,47 @@ def match2images(feature_points1 ,feature_points2, descript_points1, descript_po
     
     matching_points1 = list()
     matching_points2 = list()
-    for _i in range(len(top_ind)):
-        if dist[top_ind[0, _i], _i] / dist[top_ind[0, _i], _i] >= ratio:
-            matching_points1.append(feature_points1[top_ind[0, _i]])
+    _, ind2 = top_ind.shape
+    for _i in range(ind2):
+        if dist[_i, top_ind[_i, 0]] / dist[_i, top_ind[_i, 1]] <= ratio:
+            matching_points1.append(feature_points1[top_ind[_i, 0]])
             matching_points2.append(feature_points2[_i])
     
     return matching_points1, matching_points2
+
+root_path = './cv_image/image1'
+image_path_list = sorted(os.listdir(root_path))
+image_path_sample = list()
+for _i, _j in enumerate(image_path_list):
+    if _i % 8 == 0:
+        image_path_sample.append(_j)
+
+image_list = load_image(root_path, image_path_sample)
+for _i in image_list:
+    pass
+
+descript_points = list()
+feature_points = list()
+for i in range(2):
+    filtered_x, filtered_y = sobel_filter(image_list[i])
+    _feature_points, _ = get_feature_point(filtered_x, filtered_y)
+    _descript_points, _feature_points  = get_feature_descriptors(get_orientation(filtered_x, filtered_y), _feature_points)
+    descript_points.append(_descript_points)
+    feature_points.append(_feature_points)
+    
+matching_points1, matching_points2 = match2images(descript_points[0], descript_points[1], feature_points[0], feature_points[1])
+
+img = np.concatenate((image_list[1], image_list[0]), axis=1)
+plt.figure(dpi=400)
+plt.imshow(img, cmap='gray')
+plt.axis('off')
+for _i in range(len(matching_points1)):
+    y1, x1 = matching_points1[_i]
+    plt.scatter(x1+1000, y1, color='r',)
+    y2, x2 = matching_points2[_i]
+    plt.scatter(x2, y2, color='r')
+    plt.plot([x1+1000, x2], [y1, y2], color="blue", linewidth=1)
+plt.show()
 
 def ransac():
     pass
