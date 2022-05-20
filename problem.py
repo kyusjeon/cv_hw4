@@ -159,7 +159,7 @@ def match2images(descript_points1, descript_points2, feature_points1 ,feature_po
         descript_points1_bar = descript_points1 - mean1[:, np.newaxis]
         descript_points2_bar = descript_points2 - mean2[:, np.newaxis]
         sim = np.mean(descript_points1_bar[:, np.newaxis, ...] * descript_points2_bar[np.newaxis, ...] , axis=-1)/ (std1[:, np.newaxis] * std2[np.newaxis, :])
-        dist = (sim - 1.) / 2
+        dist = -(sim - 1.) / 2
         
     top_ind = np.argsort(dist, axis=1)
     
