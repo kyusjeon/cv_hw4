@@ -221,9 +221,7 @@ image_path_sample = list()
 for _i, _j in enumerate(image_path_list):
     image_path_sample.append(_j)
 
-image_list = load_image(root_path, image_path_sample, focal=700)
-for _i in image_list:
-    pass
+image_list = load_image(root_path, image_path_sample, focal=950)
 
 descript_points_list = list()
 feature_points_list = list()
@@ -248,8 +246,8 @@ for _i in range(len(image_list)-1):
         homo_list.append(homo)
     _image = warp_images(_image, image_list[_i +1], homo_list[-1])
 
-plt.imshow(_image)
-plt.imshow()
+plt.imshow(_image[:,:5000])
+
 ###########################################
 H, status = cv2.findHomography(matching_points2, matching_points1, cv2.RANSAC, 4.0)
 result = cv2.warpPerspective(image_list[1], H, (1500, 1000))
@@ -282,51 +280,51 @@ plt.plot(a[:,1], a[:,0], '.')
 
 
 #################
-matching_points1, matching_points2 = match2images(descript_points_list[0], 
-                                                  descript_points_list[1], 
-                                                  feature_points_list[0], 
-                                                  feature_points_list[1], 
-                                                  ratio=0.8,
-                                                  type=0)
-print(len(matching_points1))
-iter = 10000
-sample_points = 4
-for i in range(iter):
-    random_indices = np.random.choice(np.arange(len(matching_points1)), sample_points)
+# matching_points1, matching_points2 = match2images(descript_points_list[0], 
+#                                                   descript_points_list[1], 
+#                                                   feature_points_list[0], 
+#                                                   feature_points_list[1], 
+#                                                   ratio=0.8,
+#                                                   type=0)
+# print(len(matching_points1))
+# iter = 10000
+# sample_points = 4
+# for i in range(iter):
+#     random_indices = np.random.choice(np.arange(len(matching_points1)), sample_points)
     
-    _matching_points1 = matching_points1[random_indices]
-    _matching_points2 = matching_points2[random_indices]
+#     _matching_points1 = matching_points1[random_indices]
+#     _matching_points2 = matching_points2[random_indices]
 
-    matrix_affine = list()
-    for (x1, y1), (x2, y2) in zip(_matching_points2, _matching_points1):
-        matrix_affine.append([x1, y1, 1, 0,  0,  0, -x2 * x1, -x2 * y1, -x2])
-        matrix_affine.append([0,  0,  0, x1, y1, 1, -y2 * x1, -y2 * y1, -y2])
-    matrix_affine = np.stack(matrix_affine)
+#     matrix_affine = list()
+#     for (x1, y1), (x2, y2) in zip(_matching_points2, _matching_points1):
+#         matrix_affine.append([x1, y1, 1, 0,  0,  0, -x2 * x1, -x2 * y1, -x2])
+#         matrix_affine.append([0,  0,  0, x1, y1, 1, -y2 * x1, -y2 * y1, -y2])
+#     matrix_affine = np.stack(matrix_affine)
 
-    _, _, eigenvector = np.linalg.svd(matrix_affine)    # Singular Value Decomposition (SVD)
+#     _, _, eigenvector = np.linalg.svd(matrix_affine)    # Singular Value Decomposition (SVD)
 
-    _homography = np.reshape(eigenvector[-1], (3, 3))
-    _homography /= _homography[2, 2] 
+#     _homography = np.reshape(eigenvector[-1], (3, 3))
+#     _homography /= _homography[2, 2] 
     
-    _matching_points2 = np.concatenate([matching_points2, np.ones((len(matching_points2), 1))], axis=-1)    # homography coordinate
-    trans_matching_points2 = np.dot(_homography, _matching_points2.T).T
-    trans_matching_points2 /= trans_matching_points2[:, [-1]]    # normalize
-    trans_matching_points2 = trans_matching_points2[:, :2]
+#     _matching_points2 = np.concatenate([matching_points2, np.ones((len(matching_points2), 1))], axis=-1)    # homography coordinate
+#     trans_matching_points2 = np.dot(_homography, _matching_points2.T).T
+#     trans_matching_points2 /= trans_matching_points2[:, [-1]]    # normalize
+#     trans_matching_points2 = trans_matching_points2[:, :2]
     
-    distances = np.sqrt((trans_matching_points2 - matching_points1) ** 2).sum(axis=-1)
+#     distances = np.sqrt((trans_matching_points2 - matching_points1) ** 2).sum(axis=-1)
     
-    inliers1 = matching_points1[distances < 50]
-    inliers2 = matching_points2[distances < 50]
-    inlier_indices1 = list()
-    if len(inliers1) > len(inlier_indices1):
-        inlier_indices1 = inliers1
-        inlier_indices2 = inliers2
-        result_homography = _homography
-result_homography = refine_matchees(matching_points1, matching_points2)
-result = cv2.warpPerspective(image_list[1], result_homography, (2000, 800))
-result[0:800,0:1000] = np.where(image_list[0]!=0,image_list[0], result[0:800,0:1000])
-warp_images(image_list[0], image_list[1], result_homography)
-plt.imshow(warp_images(image_list[0], image_list[1], result_homography))
+#     inliers1 = matching_points1[distances < 50]
+#     inliers2 = matching_points2[distances < 50]
+#     inlier_indices1 = list()
+#     if len(inliers1) > len(inlier_indices1):
+#         inlier_indices1 = inliers1
+#         inlier_indices2 = inliers2
+#         result_homography = _homography
+# result_homography = refine_matchees(matching_points1, matching_points2)
+# result = cv2.warpPerspective(image_list[1], result_homography, (2000, 800))
+# result[0:800,0:1000] = np.where(image_list[0]!=0,image_list[0], result[0:800,0:1000])
+# warp_images(image_list[0], image_list[1], result_homography)
+# plt.imshow(warp_images(image_list[0], image_list[1], result_homography))
 
 
 
