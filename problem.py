@@ -71,13 +71,37 @@ def get_orientation(filtered_x, filtered_y, win_size=7):
     
     return matrix_ori
 
-def load_image(root_path, image_path_list):
+def cylindricalWarp(img, K):
+    """This function returns the cylindrical warp for a given image and intrinsics matrix K"""
+    h_,w_ = img.shape[:2]
+    # pixel coordinates
+    y_i, x_i = np.indices((h_,w_))
+    X = np.stack([x_i,y_i,np.ones_like(x_i)],axis=-1).reshape(h_*w_,3) # to homog
+    Kinv = np.linalg.inv(K) 
+    X = Kinv.dot(X.T).T # normalized coords
+    # calculate cylindrical coords (sin\theta, h, cos\theta)
+    A = np.stack([np.sin(X[:,0]),X[:,1],np.cos(X[:,0])],axis=-1).reshape(w_*h_,3)
+    B = K.dot(A.T).T # project back to image-pixels plane
+    # back from homog coords
+    B = B[:,:-1] / B[:,[-1]]
+    # make sure warp coords only within image bounds
+    B[(B[:,0] < 0) | (B[:,0] >= w_) | (B[:,1] < 0) | (B[:,1] >= h_)] = -1
+    B = B.reshape(h_,w_,-1)
+    
+    img_rgba = cv2.cvtColor(img,cv2.COLOR_BGR2BGRA) # for transparent borders...
+    # warp the image according to cylindrical coords
+    return cv2.remap(img_rgba, B[:,:,0].astype(np.float32), B[:,:,1].astype(np.float32), cv2.INTER_AREA, borderMode=cv2.BORDER_TRANSPARENT)
+  
+
+def load_image(root_path, image_path_list, focal):
+    K = np.array([[focal,0,1250/2],[0,focal,1000/2],[0,0,1]]) 
     image_list = list()
     for _i in image_path_list:
         _img = cv2.imread(os.path.join(root_path, _i))
         _img = cv2.cvtColor(_img, cv2.COLOR_BGR2GRAY)
-        _img = cv2.resize(_img, dsize=(1000,800))
-        image_list.append(_img)
+        _img = cv2.resize(_img, dsize=(1250,1000))
+        _img = cylindricalWarp(_img, K)[...,0]
+        image_list.append(_img[100:900, 125:1125])
     
     return image_list
 
@@ -153,34 +177,86 @@ def match2images(descript_points1, descript_points2, feature_points1 ,feature_po
     
     return np.asarray(matching_points1)[:,::-1], np.asarray(matching_points2)[:,::-1]
 
+def refine_matchees(matching_points1, matching_points2, iter = 1000, sample_points = 4):
+    inlier_indices1 = list()
+    for i in range(iter):
+        random_indices = np.random.choice(np.arange(len(matching_points1)), sample_points)
+        
+        _matching_points1 = matching_points1[random_indices]
+        _matching_points2 = matching_points2[random_indices]
+
+        matrix_affine = list()
+        for (x1, y1), (x2, y2) in zip(_matching_points2, _matching_points1):
+            matrix_affine.append([x1, y1, 1, 0,  0,  0, -x2 * x1, -x2 * y1, -x2])
+            matrix_affine.append([0,  0,  0, x1, y1, 1, -y2 * x1, -y2 * y1, -y2])
+        matrix_affine = np.stack(matrix_affine)
+
+        _, _, eigenvector = np.linalg.svd(matrix_affine)    # Singular Value Decomposition (SVD)
+
+        _homography = np.reshape(eigenvector[-1], (3, 3))
+        _homography /= _homography[2, 2] 
+        
+        _matching_points2 = np.concatenate([matching_points2, np.ones((len(matching_points2), 1))], axis=-1)    # homography coordinate
+        trans_matching_points2 = np.dot(_homography, _matching_points2.T).T
+        trans_matching_points2 /= trans_matching_points2[:, [-1]]    # normalize
+        trans_matching_points2 = trans_matching_points2[:, :2]
+        
+        distances = np.sqrt((trans_matching_points2 - matching_points1) ** 2).sum(axis=-1)
+        
+        inliers1 = matching_points1[distances < 50]
+        inliers2 = matching_points2[distances < 50]
+        if len(inliers1) > len(inlier_indices1):
+            inlier_indices1 = inliers1
+            inlier_indices2 = inliers2
+            result_homography = _homography
+    
+    return result_homography
+
+def warp_images(image1, image2, homography):
+    h, w = image1.shape
+    result = cv2.warpPerspective(image2, homography, (int(w + 400), 1000))
+    result[0:h,0:w] = np.where(image1 !=0,image1, result[0:h,0:w])
+    
+    return result
+
 root_path = './png_folder'
 image_path_list = sorted(os.listdir(root_path))
 image_path_sample = list()
 for _i, _j in enumerate(image_path_list):
     image_path_sample.append(_j)
 
-image_list = load_image(root_path, image_path_sample)
+image_list = load_image(root_path, image_path_sample[:5], focal=800)
 for _i in image_list:
     pass
 
 descript_points_list = list()
 feature_points_list = list()
-for i in range(2):
+for i in range(len(image_list)):
     filtered_x, filtered_y = sobel_filter(image_list[i])
     feature_points, feature_map = get_feature_point(filtered_x, filtered_y, win_size=15, thr = 0.01)
     matrix_ori = get_orientation(filtered_x, filtered_y)
     descript_points, feature_points  = get_feature_descriptors(matrix_ori, feature_points)
     descript_points_list.append(descript_points)
     feature_points_list.append(feature_points)
-    
-matching_points1, matching_points2 = match2images(descript_points_list[0], descript_points_list[1], feature_points_list[0], feature_points_list[1], 
-                                                  ratio=0.7,
-                                                  type=0)
-a = np.abs(matching_points1 - matching_points2)
-plt.plot(a[:,1], a[:,0], '.')
 
+homo_list = list()
+_image = image_list[0]
+for _i in range(len(image_list)-1):
+    matching_points1, matching_points2 = match2images(descript_points_list[_i], descript_points_list[_i+1], feature_points_list[_i], feature_points_list[_i+1], 
+                                                    ratio=0.7,
+                                                    type=0)
+    homo = refine_matchees(matching_points1, matching_points2)
+    if _i != 0:
+        homo_list.append(np.matmul(homo_list[-1], homo))
+    else:
+        homo_list.append(homo)
+    _image = warp_images(_image, image_list[_i +1], homo_list[-1])
+
+plt.imshow(_image)
+plt.imshow()
+###########################################
 H, status = cv2.findHomography(matching_points2, matching_points1, cv2.RANSAC, 4.0)
-result = cv2.warpPerspective(image_list[1], H, (2000, 1600))
+result = cv2.warpPerspective(image_list[1], H, (1500, 1000))
 result[0:800,0:1000] = image_list[0]
 plt.imshow(result)
 
@@ -207,14 +283,7 @@ plt.show()
 
 a = np.abs(matching_points1 - matching_points2)
 plt.plot(a[:,1], a[:,0], '.')
-def ransac():
-    pass
 
-def refine_matchees():
-    pass
-
-def warp_images():
-    pass
 
 #################
 matching_points1, matching_points2 = match2images(descript_points_list[0], 
@@ -224,7 +293,7 @@ matching_points1, matching_points2 = match2images(descript_points_list[0],
                                                   ratio=0.8,
                                                   type=0)
 print(len(matching_points1))
-iter = 1000
+iter = 10000
 sample_points = 4
 for i in range(iter):
     random_indices = np.random.choice(np.arange(len(matching_points1)), sample_points)
@@ -240,11 +309,11 @@ for i in range(iter):
 
     _, _, eigenvector = np.linalg.svd(matrix_affine)    # Singular Value Decomposition (SVD)
 
-    homography = np.reshape(eigenvector[-1], (3, 3))
-    homography /= homography[2, 2] 
+    _homography = np.reshape(eigenvector[-1], (3, 3))
+    _homography /= _homography[2, 2] 
     
     _matching_points2 = np.concatenate([matching_points2, np.ones((len(matching_points2), 1))], axis=-1)    # homography coordinate
-    trans_matching_points2 = np.dot(homography, _matching_points2.T).T
+    trans_matching_points2 = np.dot(_homography, _matching_points2.T).T
     trans_matching_points2 /= trans_matching_points2[:, [-1]]    # normalize
     trans_matching_points2 = trans_matching_points2[:, :2]
     
@@ -252,90 +321,70 @@ for i in range(iter):
     
     inliers1 = matching_points1[distances < 50]
     inliers2 = matching_points2[distances < 50]
-    
+    inlier_indices1 = list()
     if len(inliers1) > len(inlier_indices1):
         inlier_indices1 = inliers1
         inlier_indices2 = inliers2
-        result_homography = homography
-
-result = cv2.warpPerspective(image_list[1], result_homography, (2000, 1600))
+        result_homography = _homography
+result_homography = refine_matchees(matching_points1, matching_points2)
+result = cv2.warpPerspective(image_list[1], result_homography, (2000, 800))
 result[0:800,0:1000] = np.where(image_list[0]!=0,image_list[0], result[0:800,0:1000])
-plt.imshow(result)
+warp_images(image_list[0], image_list[1], result_homography)
+plt.imshow(warp_images(image_list[0], image_list[1], result_homography))
 
-def cylindricalWarp(img, K):
-    """This function returns the cylindrical warp for a given image and intrinsics matrix K"""
-    h_,w_ = img.shape[:2]
-    # pixel coordinates
-    y_i, x_i = np.indices((h_,w_))
-    X = np.stack([x_i,y_i,np.ones_like(x_i)],axis=-1).reshape(h_*w_,3) # to homog
-    Kinv = np.linalg.inv(K) 
-    X = Kinv.dot(X.T).T # normalized coords
-    # calculate cylindrical coords (sin\theta, h, cos\theta)
-    A = np.stack([np.sin(X[:,0]),X[:,1],np.cos(X[:,0])],axis=-1).reshape(w_*h_,3)
-    B = K.dot(A.T).T # project back to image-pixels plane
-    # back from homog coords
-    B = B[:,:-1] / B[:,[-1]]
-    # make sure warp coords only within image bounds
-    B[(B[:,0] < 0) | (B[:,0] >= w_) | (B[:,1] < 0) | (B[:,1] >= h_)] = -1
-    B = B.reshape(h_,w_,-1)
-    
-    img_rgba = cv2.cvtColor(img,cv2.COLOR_BGR2BGRA) # for transparent borders...
-    # warp the image according to cylindrical coords
-    return cv2.remap(img_rgba, B[:,:,0].astype(np.float32), B[:,:,1].astype(np.float32), cv2.INTER_AREA, borderMode=cv2.BORDER_TRANSPARENT)
-  
-K = np.array([[800,0,1000/2],[0,800,800/2],[0,0,1]]) 
 
-image_list[0] = cylindricalWarp(image_list[0], K)[...,0]
-image_list[1] = cylindricalWarp(image_list[1], K)[...,0]
 
-height, width = image_list[0].shape[:2]
-concat_imgs = np.concatenate([image_list[1], image_list[0]], axis=1)
+# image_list[0] = cylindricalWarp(image_list[0], K)[...,0]
+# image_list[1] = cylindricalWarp(image_list[1], K)[...,0]
 
-_, ax = plt.subplots(dpi=200)
+# height, width = image_list[0].shape[:2]
+# concat_imgs = np.concatenate([image_list[1], image_list[0]], axis=1)
 
-plt.axis("off")
-plt.imshow(concat_imgs, cmap="gray")
+# _, ax = plt.subplots(dpi=200)
 
-# Draw corners
-for _i in range(len(inlier_indices1)):
-    y_i, x_i = inlier_indices1[_i]
-    y_j, x_j = inlier_indices2[_i]
-    ax.add_patch(
-        mpl.patches.Circle(
-            (x_i, y_i),                   # (x, y)
-            5,
-            fill=True,
-    ))
-    ax.add_patch(
-        mpl.patches.Circle(
-            (x_j + width, y_j),                   # (x, y)
-            5,
-            fill=True,
-    ))
-    ax.add_patch(
-        mpl.patches.Arrow(
-            x_i, y_i,
-            x_j + width - x_i, y_j - y_i,
-            width=5,
-        )
-    )
+# plt.axis("off")
+# plt.imshow(concat_imgs, cmap="gray")
 
-def warpImages(imgs, homographies):
-    result_image = []
-    for i in range(len(imgs) - 1):
-        homography = homographies[i]
-        for j in range(i + 1, len(imgs) - 1):
-            homography = np.dot(homographies[j], homography)
-        # transfomed_img = cv2.warpPerspective(imgs[i], homography, (imgs[i].shape[1], imgs[i].shape[0]))
-        # transfomed_img = cv2.warpPerspective(imgs[i], homographies[i], (imgs[i].shape[1], imgs[i].shape[0]))
-        result = cv2.warpPerspective(imgs[i+1], homographies[i],
-            (imgs[i].shape[1] + imgs[i+1].shape[1], imgs[i].shape[0]))
-        # result[0:imgs[i+1].shape[0], 0:imgs[i+1].shape[1]] = imgs[i]
+# # Draw corners
+# for _i in range(len(inlier_indices1)):
+#     y_i, x_i = inlier_indices1[_i]
+#     y_j, x_j = inlier_indices2[_i]
+#     ax.add_patch(
+#         mpl.patches.Circle(
+#             (x_i, y_i),                   # (x, y)
+#             5,
+#             fill=True,
+#     ))
+#     ax.add_patch(
+#         mpl.patches.Circle(
+#             (x_j + width, y_j),                   # (x, y)
+#             5,
+#             fill=True,
+#     ))
+#     ax.add_patch(
+#         mpl.patches.Arrow(
+#             x_i, y_i,
+#             x_j + width - x_i, y_j - y_i,
+#             width=5,
+#         )
+#     )
 
-        # print(transfomed_img.shape, imgs[i].shape)
-        # plt.imshow(transfomed_img, cmap="gray")
-        # plt.imshow(np.concatenate((imgs[i], transfomed_img, imgs[i+1]), axis=1), cmap="gray")
-        plt.imshow(result, cmap="gray")
-        plt.show()
+# def warpImages(imgs, homographies):
+#     result_image = []
+#     for i in range(len(imgs) - 1):
+#         homography = homographies[i]
+#         for j in range(i + 1, len(imgs) - 1):
+#             homography = np.dot(homographies[j], homography)
+#         # transfomed_img = cv2.warpPerspective(imgs[i], homography, (imgs[i].shape[1], imgs[i].shape[0]))
+#         # transfomed_img = cv2.warpPerspective(imgs[i], homographies[i], (imgs[i].shape[1], imgs[i].shape[0]))
+#         result = cv2.warpPerspective(imgs[i+1], homographies[i],
+#             (imgs[i].shape[1] + imgs[i+1].shape[1], imgs[i].shape[0]))
+#         # result[0:imgs[i+1].shape[0], 0:imgs[i+1].shape[1]] = imgs[i]
+
+#         # print(transfomed_img.shape, imgs[i].shape)
+#         # plt.imshow(transfomed_img, cmap="gray")
+#         # plt.imshow(np.concatenate((imgs[i], transfomed_img, imgs[i+1]), axis=1), cmap="gray")
+#         plt.imshow(result, cmap="gray")
+#         plt.show()
         
-warpImages([image_list[1], image_list[0]], [result_homography])
+# warpImages([image_list[1], image_list[0]], [result_homography])
