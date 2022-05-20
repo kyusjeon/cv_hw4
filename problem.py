@@ -205,12 +205,13 @@ def refine_matchees(matching_points1, matching_points2, iter = 1000, sample_poin
             inlier_indices1 = inliers1
             inlier_indices2 = inliers2
             result_homography = _homography
+            if len(inlier_indices1) > len(matching_points1) * 0.99: break
     
     return result_homography
 
 def warp_images(image1, image2, homography):
     h, w = image1.shape
-    result = cv2.warpPerspective(image2, homography, (int(w + 400), 1000))
+    result = cv2.warpPerspective(image2, homography, (int(w + 400), 1400))
     result[0:h,0:w] = np.where(image1 !=0,image1, result[0:h,0:w])
     
     return result
@@ -234,7 +235,9 @@ for i in range(len(image_list)):
     feature_points_list.append(feature_points)
 
 homo_list = list()
-_image = image_list[0]
+_image = np.zeros((1100, 1000))
+_image[300:,:] = image_list[0]
+move_down = np.array([[1,0,0],[0,1,300],[0,0,1]])
 for _i in range(len(image_list)-1):
     matching_points1, matching_points2 = match2images(descript_points_list[_i], descript_points_list[_i+1], feature_points_list[_i], feature_points_list[_i+1], 
                                                     ratio=0.7,
@@ -244,9 +247,9 @@ for _i in range(len(image_list)-1):
         homo_list.append(np.matmul(homo_list[-1], homo))
     else:
         homo_list.append(homo)
-    _image = warp_images(_image, image_list[_i +1], homo_list[-1])
+    _image = warp_images(_image, image_list[_i +1], np.matmul(move_down, homo_list[-1]))
 
-plt.imshow(_image[:,:5000])
+plt.imshow(_image)
 
 ###########################################
 H, status = cv2.findHomography(matching_points2, matching_points1, cv2.RANSAC, 4.0)
