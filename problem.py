@@ -158,7 +158,8 @@ def match2images(descript_points1, descript_points2, feature_points1 ,feature_po
         std2 = np.mean(descript_points2, axis=1)
         descript_points1_bar = descript_points1 - mean1[:, np.newaxis]
         descript_points2_bar = descript_points2 - mean2[:, np.newaxis]
-        dist = np.mean(descript_points1_bar[:, np.newaxis, ...] * descript_points2_bar[np.newaxis, ...] / std1[:, np.newaxis, np.newaxis] / std2[np.newaxis, :, np.newaxis], axis=2)
+        sim = np.mean(descript_points1_bar[:, np.newaxis, ...] * descript_points2_bar[np.newaxis, ...] , axis=-1)/ (std1[:, np.newaxis] * std2[np.newaxis, :])
+        dist = (sim - 1.) / 2
         
     top_ind = np.argsort(dist, axis=1)
     
@@ -166,15 +167,10 @@ def match2images(descript_points1, descript_points2, feature_points1 ,feature_po
     matching_points2 = list()
     ind1, _ = top_ind.shape
     for _i in range(ind1):
-        if type == 0:
-            if dist[_i, top_ind[_i, 0]] / dist[_i, top_ind[_i, 1]] <= ratio:
-                matching_points1.append(feature_points1[_i])
-                matching_points2.append(feature_points2[top_ind[_i, 0]])
-        if type == 1:
-            if dist[_i, top_ind[_i, -2]] / dist[_i, top_ind[_i, -1]] <= ratio:
-                matching_points1.append(feature_points1[_i])
-                matching_points2.append(feature_points2[top_ind[_i, 0]])
-    
+        if dist[_i, top_ind[_i, 0]] / dist[_i, top_ind[_i, 1]] <= ratio:
+            matching_points1.append(feature_points1[_i])
+            matching_points2.append(feature_points2[top_ind[_i, 0]])
+
     return np.asarray(matching_points1)[:,::-1], np.asarray(matching_points2)[:,::-1]
 
 def refine_matchees(matching_points1, matching_points2, iter = 1000, sample_points = 4):
@@ -225,7 +221,7 @@ image_path_sample = list()
 for _i, _j in enumerate(image_path_list):
     image_path_sample.append(_j)
 
-image_list = load_image(root_path, image_path_sample[:5], focal=800)
+image_list = load_image(root_path, image_path_sample, focal=700)
 for _i in image_list:
     pass
 
