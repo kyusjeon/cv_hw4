@@ -124,7 +124,7 @@ def get_feature_descriptors(matrix_ori, feature_points):
       
     return np.asarray(descript_points), np.asarray(feature_point_list)
 
-def match2images(descript_points1, descript_points2, feature_points1 ,feature_points2 ,ratio = 0.9, type=1):
+def match2images(descript_points1, descript_points2, feature_points1 ,feature_points2 ,ratio = 0.9, type=0):
     if type == 0:
         dist = np.sum(((descript_points1[:, np.newaxis, ...] - descript_points2[np.newaxis, ...])**2)**(1/2), axis=2)
     elif type == 1:
@@ -134,7 +134,7 @@ def match2images(descript_points1, descript_points2, feature_points1 ,feature_po
         std2 = np.mean(descript_points2, axis=1)
         descript_points1_bar = descript_points1 - mean1[:, np.newaxis]
         descript_points2_bar = descript_points2 - mean2[:, np.newaxis]
-        dist = np.sum(descript_points1_bar[:, np.newaxis, ...] * descript_points2_bar[np.newaxis, ...] / std1[:, np.newaxis, np.newaxis] / std2[np.newaxis, :, np.newaxis], axis=2)
+        dist = np.mean(descript_points1_bar[:, np.newaxis, ...] * descript_points2_bar[np.newaxis, ...] / std1[:, np.newaxis, np.newaxis] / std2[np.newaxis, :, np.newaxis], axis=2)
         
     top_ind = np.argsort(dist, axis=1)
     
@@ -142,11 +142,16 @@ def match2images(descript_points1, descript_points2, feature_points1 ,feature_po
     matching_points2 = list()
     _, ind2 = top_ind.shape
     for _i in range(ind2):
-        if dist[_i, top_ind[_i, 0]] / dist[_i, top_ind[_i, 1]] <= ratio:
-            matching_points1.append(feature_points1[_i])
-            matching_points2.append(feature_points2[top_ind[_i, 0]])
+        if type == 0:
+            if dist[_i, top_ind[_i, 0]] / dist[_i, top_ind[_i, 1]] <= ratio:
+                matching_points1.append(feature_points1[_i])
+                matching_points2.append(feature_points2[top_ind[_i, 0]])
+        if type == 1:
+            if dist[_i, top_ind[_i, -2]] / dist[_i, top_ind[_i, -1]] <= ratio:
+                matching_points1.append(feature_points1[_i])
+                matching_points2.append(feature_points2[top_ind[_i, 0]])
     
-    return np.asarray(matching_points1), np.asarray(matching_points2)
+    return np.asarray(matching_points1)[:,::-1], np.asarray(matching_points2)[:,::-1]
 
 root_path = './png_folder'
 image_path_list = sorted(os.listdir(root_path))
@@ -168,13 +173,16 @@ for i in range(2):
     descript_points_list.append(descript_points)
     feature_points_list.append(feature_points)
     
-matching_points1, matching_points2 = match2images(descript_points_list[0], descript_points_list[1], feature_points_list[0], feature_points_list[1], ratio=0.9)
-matching_points1 = np.stack([matching_points1[:,1], matching_points1[:,0]], axis=1)
-matching_points2 = np.stack([matching_points2[:,1], matching_points2[:,0]], axis=1)
+matching_points1, matching_points2 = match2images(descript_points_list[0], descript_points_list[1], feature_points_list[0], feature_points_list[1], 
+                                                  ratio=0.7,
+                                                  type=0)
+a = np.abs(matching_points1 - matching_points2)
+plt.plot(a[:,1], a[:,0], '.')
 
 H, status = cv2.findHomography(matching_points2, matching_points1, cv2.RANSAC, 4.0)
 result = cv2.warpPerspective(image_list[1], H, (2000, 1600))
 result[0:800,0:1000] = image_list[0]
+plt.imshow(result)
 
 feature_points, feature_map = get_feature_point(filtered_x, filtered_y, win_size=15, thr = 0.01)
 # feature map
@@ -190,13 +198,15 @@ plt.figure(dpi=400)
 plt.imshow(img, cmap='gray')
 plt.axis('off')
 for _i in range(len(matching_points1)):
-    x1, y1 = matching_points1[_i]
-    plt.scatter(x1+1000, y1, color='r', marker='.')
-    x2, y2 = matching_points2[_i]
-    plt.scatter(x2, y2, color='r', marker='.')
-    plt.plot([x1+1000, x2], [y1, y2], color="blue", linewidth=1)
+    y1, x1 = matching_points1[_i]
+    plt.scatter(x1, y1, color='r', marker='.')
+    y2, x2 = matching_points2[_i]
+    plt.scatter(x2+1000, y2, color='r', marker='.')
+    plt.plot([x1, x2+1000], [y1, y2], color="blue", linewidth=1)
 plt.show()
 
+a = np.abs(matching_points1 - matching_points2)
+plt.plot(a[:,1], a[:,0], '.')
 def ransac():
     pass
 
@@ -211,8 +221,10 @@ matching_points1, matching_points2 = match2images(descript_points_list[0],
                                                   descript_points_list[1], 
                                                   feature_points_list[0], 
                                                   feature_points_list[1], 
-                                                  ratio=0.9)
-iter = 10000
+                                                  ratio=0.8,
+                                                  type=0)
+print(len(matching_points1))
+iter = 1000
 sample_points = 4
 for i in range(iter):
     random_indices = np.random.choice(np.arange(len(matching_points1)), sample_points)
@@ -221,29 +233,26 @@ for i in range(iter):
     _matching_points2 = matching_points2[random_indices]
 
     matrix_affine = list()
-    for (y1, x1), (y2, x2) in zip(_matching_points1, _matching_points2):
+    for (x1, y1), (x2, y2) in zip(_matching_points2, _matching_points1):
         matrix_affine.append([x1, y1, 1, 0,  0,  0, -x2 * x1, -x2 * y1, -x2])
         matrix_affine.append([0,  0,  0, x1, y1, 1, -y2 * x1, -y2 * y1, -y2])
     matrix_affine = np.stack(matrix_affine)
 
-    _, sigma, eigenvector = np.linalg.svd(matrix_affine)    # Singular Value Decomposition (SVD)
+    _, _, eigenvector = np.linalg.svd(matrix_affine)    # Singular Value Decomposition (SVD)
 
-    homography = np.reshape(eigenvector[np.argmin(sigma)], (3, 3))
-    homography /= homography[2, 2]    # normalize
+    homography = np.reshape(eigenvector[-1], (3, 3))
+    homography /= homography[2, 2] 
     
-    # Compute distances of selected corners
     _matching_points2 = np.concatenate([matching_points2, np.ones((len(matching_points2), 1))], axis=-1)    # homography coordinate
     trans_matching_points2 = np.dot(homography, _matching_points2.T).T
     trans_matching_points2 /= trans_matching_points2[:, [-1]]    # normalize
     trans_matching_points2 = trans_matching_points2[:, :2]
     
     distances = np.sqrt((trans_matching_points2 - matching_points1) ** 2).sum(axis=-1)
-    plt.plot(distances,'.')
-    plt.show()
-    inliers1 = matching_points1[distances < 1000 * 0.05]
-    inliers2 = matching_points2[distances < 1000 * 0.05]
-    inlier_indices1 = list()
-    inlier_indices2 = list()
+    
+    inliers1 = matching_points1[distances < 50]
+    inliers2 = matching_points2[distances < 50]
+    
     if len(inliers1) > len(inlier_indices1):
         inlier_indices1 = inliers1
         inlier_indices2 = inliers2
