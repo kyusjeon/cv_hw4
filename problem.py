@@ -211,7 +211,7 @@ def refine_matchees(matching_points1, matching_points2, iter = 1000, sample_poin
 
 def warp_images(image1, image2, homography):
     h, w = image1.shape
-    result = cv2.warpPerspective(image2, homography, (int(w + 400), 1200))
+    result = cv2.warpPerspective(image2, homography, (int(w + 400), 1400))
     result[0:h,0:w] = np.where(image1 !=0,image1, result[0:h,0:w])
     
     return result
@@ -235,9 +235,9 @@ for i in range(len(image_list)):
     feature_points_list.append(feature_points)
 
 homo_list = list()
-_image = np.zeros((1000, 1000))
-_image[200:,:] = image_list[0]
-move_down = np.array([[1,0,0],[0,1,200],[0,0,1]])
+_image = np.zeros((1100, 1000))
+_image[300:,:] = image_list[0]
+move_down = np.array([[1,0,0],[0,1,300],[0,0,1]])
 for _i in range(len(image_list)-1):
     matching_points1, matching_points2 = match2images(descript_points_list[_i], descript_points_list[_i+1], feature_points_list[_i], feature_points_list[_i+1], 
                                                     ratio=0.7,
